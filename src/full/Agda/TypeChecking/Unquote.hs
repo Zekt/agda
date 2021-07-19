@@ -24,6 +24,7 @@ import Agda.Syntax.Common hiding ( Nat )
 import Agda.Syntax.Internal as I
 import qualified Agda.Syntax.Reflected as R
 import qualified Agda.Syntax.Abstract as A
+import Agda.Syntax.Abstract.Views
 import Agda.Syntax.Translation.InternalToAbstract
 import Agda.Syntax.Literal
 import Agda.Syntax.Position
@@ -916,7 +917,8 @@ evalTCM v = do
         when (isInstance i) $ addTypedInstance x a
         primUnitUnit
 
-    -- The second argument takes a Pi type which will be deconstructed as parameters.
+    -- | The second argument takes a @Pi@ type which will be translated to parameters,
+    --   the last type it ends in is ignored.
     tcDeclareData :: Arg QName -> R.Type -> R.Type -> UnquoteM Term
     tcDeclareData (Arg i x) t a = inOriginalContext $ do
       setDirty
@@ -940,68 +942,79 @@ evalTCM v = do
         when (isInstance i) $ addTypedInstance x a
         primUnitUnit
 
+    -- | For now, there is no reflected syntax for types with free variables,
+    --   and @R.Type@ must be closed to be unquoted.
+    --   Thus the input type of constructors are expected to include parameters as implicit types,
+    --   which are removed since @checkDataDef@ will add declared parameters to the context.
+    --   @Var@s in the given constructors (whose original referents are removed) are updated accordingly.
     tcDefineData :: QName -> [(QName, R.Type)] -> UnquoteM Term
     tcDefineData x cs = inOriginalContext $ (setDirty >>) $ liftTCM $ do
       caseEitherM (getConstInfo' x)
         (const $ genericError $ "Missing declaration for " ++ prettyShow x) $ \def -> do
-        let conNames = map fst cs
-        ac <- asksTC (^. lensIsAbstract)
-        let i = mkDefInfo (nameConcrete $ qnameName x) noFixity' PublicAccess ac noRange
         npars <- case theDef def of
                    DataOrRecSig n -> return n
                    _              -> genericError $ prettyShow x ++
                      " is not declared as datatype or record, or it already has a definition."
         t   <- instantiateFull . defType =<< instantiateDef def
-        tel <- theTel <$> telViewUpTo npars t
-        tel' <- reify tel
-        reportSDoc "tc.unquote.def" 10 $ "Names of parameters: " <+> showTel' tel'
-        -- Constructors are Axioms. Construct Declaration.Axioms with cs.
-        -- Then call checkDataDef with these axioms.
-        --es <- mapM (\(q, t) -> do xs <- getContextNames
-        --                          let ctx = zip xs $ repeat R.Unknown
-        --                          let res = runReaderT (withNames [] (const $ toAbstract t)) ctx
-        --                          withShowAllArguments res) cs
-        --es <- mapM (\(q, t) -> do localTC (consContexts _) (toAbstract_ t)) cs
-        --es <- mapM (\(_, t) -> do foldr addContext (toAbstract_ t) (telToList tel)) cs
+        tel <- reify =<< theTel <$> telViewUpTo npars t
         es <- mapM (toAbstract_ . snd) cs
-        let es' = map (removeParams npars) es
-        -- Warning: printing es does not terminate.
+        let names = telNames tel
+            substNames' xs e = mapExpr (substNames $ zip names xs) e
+            es' = map (removeParams npars substNames') es
         reportSDoc "tc.unquote.def" 10 $ vcat $ map prettyA es
-        let as = zipWith (curry $ toAxiom ac) conNames es'
+        ac <- asksTC (^. lensIsAbstract)
+        -- Constructors are @Axiom@s. Construct @Declaration.Axiom@s with @cs@,
+        -- then call @checkDataDef@ with these axioms.
+        let i = mkDefInfo (nameConcrete $ qnameName x) noFixity' PublicAccess ac noRange
+            conNames = map fst cs
+            as = zipWith (curry $ toAxiom ac) conNames es'
+            lams = map toLamBinding tel
         reportSDoc "tc.unquote.def" 10 $ vcat $
           [ "checking datatype: " <+> prettyTCM x <+> " with constructors:"
           , nest 2 (vcat (map prettyTCM conNames))
           ]
-        let lams = map toLamBinding tel'
         checkDataDef i x YesUniverseCheck (A.DataDefParams Set.empty lams) as
         primUnitUnit
       where
-        --withParams ss c = runReaderT (withNames [] (const c)) []
-        showTel' []       = ""
-        showTel' ((A.TBind _ _ (na :| _) e) : xs) =
-          let x = A.unBind $ A.binderName $ namedArg na
+        telNames :: A.Telescope -> [Name]
+        telNames [] = []
+        telNames (t : ts) = namedBinding t : telNames ts
+
+        showTel :: A.Telescope -> TCM Doc
+        showTel []       = ""
+        showTel (t@(A.TBind _ _ (na :| _) e) : xs) =
+          let x = namedBinding t
               y = nameOf $ unArg na
           in  vcat $ [ "Name:" <+> maybe "None" (prettyTCM . rangedThing . woThing) y <+>
                        ", Concrete Name:" <+> prettyTCM (nameConcrete x) <+>
                        ", Name Id:" <+> pretty (nameId x) <+>
                        ", Type:" <+> prettyTCM e
-                     , showTel' xs]
-        showTel' _ = __IMPOSSIBLE__ 
-        consContext :: ContextEntry -> TCEnv -> TCEnv
-        consContext ce env = env {envContext = ce : envContext env}
-        consContexts :: [ContextEntry] -> TCEnv -> TCEnv
-        consContexts ces env = foldr consContext env ces
-        removeParams :: Int -> A.Expr -> A.Expr
-        removeParams 0     e@(A.Pi _ _ _) = e
-        removeParams npars (A.Pi _ _ e)   = if npars < 0 then __IMPOSSIBLE__
-                                                         else removeParams (npars - 1) e
-        removeParams _ _ = __IMPOSSIBLE__ 
+                     , showTel xs]
+        showTel _ = __IMPOSSIBLE__ 
+
+        -- | The second argument is continuation.
+        removeParams :: Int -> ([Name] -> A.Expr -> a) -> A.Expr -> a
+        removeParams 0     f e                   = f [] e
+        removeParams npars f (A.Pi _ (n :| _) e) =
+          if npars < 0 then __IMPOSSIBLE__
+                       else removeParams (npars - 1) (\xs e' -> f (namedBinding n : xs) e') e
+        removeParams _ _ _ = __IMPOSSIBLE__ 
+
+        -- | Substitute @Var x@ for @Var y@ in an Expr.
+        substNames :: [(Name, Name)] -> (A.Expr -> A.Expr)
+        substNames ((x, y) : xs) e@(A.Var n) = if (y == n) then A.Var x
+                                                           else e
+        substNames _ e = e
+
         toLamBinding (A.TBind _ tac (b :| []) _) = A.DomainFree tac b
         toLamBinding _ = __IMPOSSIBLE__
         toAxiom ac (c , e) =
           let i = mkDefInfo (nameConcrete $ qnameName x) noFixity' PublicAccess ac noRange
           in  A.Axiom ConName i defaultArgInfo Nothing c e
-        --toAxiom _ _ = genericError $ "Is not a constructor."
+
+        namedBinding :: A.TypedBinding -> Name
+        namedBinding (A.TBind _ _ (n :| _) _) = A.unBind . A.binderName $ namedArg n
+        namedBinding _ = __IMPOSSIBLE__ 
 
 
     tcDefineFun :: QName -> [R.Clause] -> UnquoteM Term
