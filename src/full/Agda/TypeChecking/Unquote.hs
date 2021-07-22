@@ -917,33 +917,28 @@ evalTCM v = do
         when (isInstance i) $ addTypedInstance x a
         primUnitUnit
 
-    -- | The second argument takes a @Pi@ type which will be translated to parameters,
-    --   the last type it ends in is ignored.
-    tcDeclareData :: Arg QName -> R.Type -> R.Type -> UnquoteM Term
-    tcDeclareData (Arg i x) t a = inOriginalContext $ do
+    -- | A datatype is expected to be declared with a type including it's parameters.
+    --   The second argument indicates how many preceding types are parameters.
+    tcDeclareData :: QName -> Integer -> R.Type -> UnquoteM Term
+    tcDeclareData x npars t = inOriginalContext $ do
       setDirty
-      when (hidden i) $ liftTCM $ typeError . GenericDocError =<<
-        "Cannot declare hidden datatype" <+> prettyTCM x
       tell [x]
       liftTCM $ do
         reportSDoc "tc.unquote.decl" 10 $ sep
           [ "declare Data" <+> prettyTCM x <+> ":"
-          , nest 2 $ prettyR a
+          , nest 2 $ prettyR t
           ]
         alreadyDefined <- isRight <$> getConstInfo' x
         when alreadyDefined $ genericError $ "Multiple declarations of " ++ prettyShow x
-        e <- toAbstract_ a
-        a <- locallyReduceAllDefs $ isType_ e
-        t <- locallyReduceAllDefs $ isType_ =<< toAbstract_ t
-        tel <- reify =<< theTel <$> telView t
+        e <- toAbstract_ t
+        let (tel, e') = removeParams (fromInteger npars) (,) e
         ac <- asksTC (^. lensIsAbstract)
         let defIn = mkDefInfo (nameConcrete $ qnameName x) noFixity' PublicAccess ac noRange
-        checkSig DataName defIn x (A.GeneralizeTel Map.empty tel) e
-        when (isInstance i) $ addTypedInstance x a
+        checkSig DataName defIn x (A.GeneralizeTel Map.empty tel) e'
         primUnitUnit
 
     -- | For now, there is no reflected syntax for types with free variables,
-    --   and @R.Type@ must be closed to be unquoted.
+    --   and @R.Type@ must be closed to be unquoted to.
     --   Thus the input type of constructors are expected to include parameters as implicit types,
     --   which are removed since @checkDataDef@ will add declared parameters to the context.
     --   @Var@s in the given constructors (whose original referents are removed) are updated accordingly.
@@ -958,8 +953,8 @@ evalTCM v = do
         t   <- instantiateFull . defType =<< instantiateDef def
         tel <- reify =<< theTel <$> telViewUpTo npars t
         es <- mapM (toAbstract_ . snd) cs
-        let names = telNames tel
-            substNames' xs e = mapExpr (substNames $ zip names xs) e
+        let dataParams = telNames tel
+            substNames' xs e = mapExpr (substNames $ zip dataParams $ map namedBinding xs) e
             es' = map (removeParams npars substNames') es
         reportSDoc "tc.unquote.def" 10 $ vcat $ map prettyA es
         ac <- asksTC (^. lensIsAbstract)
@@ -976,46 +971,24 @@ evalTCM v = do
         checkDataDef i x YesUniverseCheck (A.DataDefParams Set.empty lams) as
         primUnitUnit
       where
-        telNames :: A.Telescope -> [Name]
-        telNames [] = []
-        telNames (t : ts) = namedBinding t : telNames ts
-
-        showTel :: A.Telescope -> TCM Doc
-        showTel []       = ""
-        showTel (t@(A.TBind _ _ (na :| _) e) : xs) =
-          let x = namedBinding t
-              y = nameOf $ unArg na
-          in  vcat $ [ "Name:" <+> maybe "None" (prettyTCM . rangedThing . woThing) y <+>
-                       ", Concrete Name:" <+> prettyTCM (nameConcrete x) <+>
-                       ", Name Id:" <+> pretty (nameId x) <+>
-                       ", Type:" <+> prettyTCM e
-                     , showTel xs]
-        showTel _ = __IMPOSSIBLE__ 
-
-        -- | The second argument is continuation.
-        removeParams :: Int -> ([Name] -> A.Expr -> a) -> A.Expr -> a
-        removeParams 0     f e                   = f [] e
-        removeParams npars f (A.Pi _ (n :| _) e) =
-          if npars < 0 then __IMPOSSIBLE__
-                       else removeParams (npars - 1) (\xs e' -> f (namedBinding n : xs) e') e
-        removeParams _ _ _ = __IMPOSSIBLE__ 
-
+        toLamBinding (A.TBind _ tac (b :| []) _) = A.DomainFree tac b
+        toLamBinding _ = __IMPOSSIBLE__
+        toAxiom ac (c , e) =
+          let i = mkDefInfo (nameConcrete $ qnameName x) noFixity' PublicAccess ac noRange
+          in  A.Axiom ConName i defaultArgInfo Nothing c e
         -- | Substitute @Var x@ for @Var y@ in an Expr.
         substNames :: [(Name, Name)] -> (A.Expr -> A.Expr)
         substNames ((x, y) : xs) e@(A.Var n) = if (y == n) then A.Var x
                                                            else e
         substNames _ e = e
 
-        toLamBinding (A.TBind _ tac (b :| []) _) = A.DomainFree tac b
-        toLamBinding _ = __IMPOSSIBLE__
-        toAxiom ac (c , e) =
-          let i = mkDefInfo (nameConcrete $ qnameName x) noFixity' PublicAccess ac noRange
-          in  A.Axiom ConName i defaultArgInfo Nothing c e
+        telNames :: A.Telescope -> [Name]
+        telNames [] = []
+        telNames (t : ts) = namedBinding t : telNames ts
 
         namedBinding :: A.TypedBinding -> Name
         namedBinding (A.TBind _ _ (n :| _) _) = A.unBind . A.binderName $ namedArg n
-        namedBinding _ = __IMPOSSIBLE__ 
-
+        namedBinding _ = __IMPOSSIBLE__
 
     tcDefineFun :: QName -> [R.Clause] -> UnquoteM Term
     tcDefineFun x cs = inOriginalContext $ (setDirty >>) $ liftTCM $ do
@@ -1040,6 +1013,13 @@ evalTCM v = do
         _ -> liftTCM $ typeError . GenericDocError =<<
           "Should be a pair: " <+> prettyTCM u
 
+    -- | The second argument is continuation.
+    removeParams :: Int -> ([A.TypedBinding] -> A.Expr -> a) -> A.Expr -> a
+    removeParams 0     f e                   = f [] e
+    removeParams npars f (A.Pi _ (n :| _) e) | npars < 0 = __IMPOSSIBLE__ 
+    removeParams npars f (A.Pi _ (n :| _) e) =
+      removeParams (npars - 1) (\xs e' -> f (n : xs) e') e
+    removeParams _ _ _ = __IMPOSSIBLE__
 
 ------------------------------------------------------------------------
 -- * Trusted executables

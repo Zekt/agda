@@ -283,7 +283,7 @@ postulate
   freshName        : String → TC Name
   declareDef       : Arg Name → Type → TC ⊤
   declarePostulate : Arg Name → Type → TC ⊤
-  declareData      : Arg Name → Type → Type → TC ⊤
+  declareData      : Name → Nat → Type → TC ⊤
   defineData       : Name → List (Σ Name (λ _ → Term)) → TC ⊤
   defineFun        : Name → List Clause → TC ⊤
   getType          : Name → TC Type
