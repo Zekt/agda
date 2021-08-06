@@ -1700,6 +1700,7 @@ data NLPSort
   | PInf IsFibrant Integer
   | PSizeUniv
   | PLockUniv
+  | PIntervalUniv
   deriving (Data, Show, Generic)
 
 type RewriteRules = [RewriteRule]
@@ -4554,6 +4555,7 @@ instance KillRange NLPSort where
   killRange s@(PInf f n) = s
   killRange PSizeUniv = PSizeUniv
   killRange PLockUniv = PLockUniv
+  killRange PIntervalUniv = PIntervalUniv
 
 instance KillRange RewriteRule where
   killRange (RewriteRule q gamma f es rhs t c) =

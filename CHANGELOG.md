@@ -21,6 +21,11 @@ Language
 
   This feature is experimental.
 
+* The cubical interval `I` now belongs to its own sort, `IUniv`, rather
+  than `SSet`. For `J : ISet` and `A : J → Set l`, we have
+  `(j : J) → A : Set l`, that is, the type of functions from a type in `ISet`
+  to a fibrant type is fibrant.
+
 Compiler backends
 -----------------
 
@@ -50,3 +55,16 @@ Compiler backends
 
   This flag implies `--ghc-strict-data`, and the exceptions of that
   flag applies to this flag as well.
+
+LaTeX backend
+-------------
+
+* Files `agda.sty` and `postprocess-latex.pl` are now found in the `latex/`
+  subdirectory of the Agda data directory (`agda --print-agda-dir`).
+
+* `agda.sty` is now versioned (printed to the `.log` file by `latex`)
+  (see [#5473](https://github.com/agda/agda/issues/5473)).
+
+* Italics correction (inserted by `\textit` e.g. in `\AgdaBound`) now works,
+  thanks to moving the `\textcolor` wrapping to the outside in `agda.sty`
+  (see [#5471](https://github.com/agda/agda/issues/5471)).

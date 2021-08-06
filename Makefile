@@ -122,7 +122,8 @@ STACK_INSTALL_BIN_OPTS = --no-library-profiling \
                          $(STACK_INSTALL_OPTS)
 
 CABAL_CONFIGURE_OPTS = $(SLOW_CABAL_INSTALL_OPTS) \
-                       $(CABAL_INSTALL_BIN_OPTS)
+                       --disable-library-profiling \
+                       $(CABAL_INSTALL_OPTS)
 
 ##############################################################################
 ## Installation
@@ -347,6 +348,7 @@ fast-forward-cubical :
 
 .PHONY : test ## Run all test suites.
 test : check-whitespace \
+       check-encoding \
        common \
        succeed \
        fail \
@@ -376,6 +378,16 @@ test-using-std-lib : std-lib-test \
 
 .PHONY : quicktest ## Run successful and failing tests.
 quicktest : common succeed fail
+
+.PHONY : check-encoding ## Make sure that Parser.y is ASCII. [Issue #5465]
+check-encoding :
+	@$(call decorate, "Check that Parser.y is ASCII", \
+          iconv -f ASCII src/full/Agda/Syntax/Parser/Parser.y > /dev/null)
+# Hint: if the encoding check fails, use
+#
+#     pcregrep --color='auto' -n "[\x80-\xFF]" src/full/Agda/Syntax/Parser/Parser.y
+#
+# to find non-ASCII characters.
 
 .PHONY : bugs ##
 bugs :

@@ -362,23 +362,135 @@ newRecordMetaCtx frozen r pars tel perm ctx = do
 newQuestionMark :: InteractionId -> Comparison -> Type -> TCM (MetaId, Term)
 newQuestionMark ii cmp = newQuestionMark' (newValueMeta' RunMetaOccursCheck) ii cmp
 
+
+-- Since we are type-checking some code twice, e.g., record declarations
+-- for the sake of the record constructor type and then again for the sake
+-- of the record module (issue #434), we may encounter an interaction point
+-- for which we already have a meta.  In this case, we want to reuse the meta.
+-- Otherwise we get two meta for one interaction point which are not connected,
+-- and e.g. Agda might solve one in some way
+-- and the user the other in some other way...
+--
+-- New reference: Andreas, 2021-07-21, issues #5478 and #5463
+-- Old reference: Andreas, 2016-07-29, issue 1720-2
+-- See also: issue #2257
 newQuestionMark'
   :: (Comparison -> Type -> TCM (MetaId, Term))
   -> InteractionId -> Comparison -> Type -> TCM (MetaId, Term)
-newQuestionMark' new ii cmp t = do
-  -- Andreas, 2016-07-29, issue 1720-2
-  -- This is slightly risky, as the same interaction id
-  -- maybe be shared between different contexts.
-  -- Blame goes to the record processing hack, see issue #424
-  -- and @ConcreteToAbstract.recordConstructorType@.
-  let existing x = (x,) . MetaV x . map Apply <$> getContextArgs
-  flip (caseMaybeM $ lookupInteractionMeta ii) existing $ {-else-} do
+newQuestionMark' new ii cmp t = lookupInteractionMeta ii >>= \case
 
-  -- Do not run check for recursive occurrence of meta in definitions,
-  -- because we want to give the recursive solution interactively (Issue 589)
-  (x, m) <- new cmp t
-  connectInteractionPoint ii x
-  return (x, m)
+  -- Case: new meta.
+  Nothing -> do
+    -- Do not run check for recursive occurrence of meta in definitions,
+    -- because we want to give the recursive solution interactively (Issue 589)
+    (x, m) <- new cmp t
+    connectInteractionPoint ii x
+    return (x, m)
+
+  -- Case: existing meta.
+  Just x -> do
+    -- Get the context Γ in which the meta was created.
+    MetaVar
+      { mvInfo = MetaInfo{ miClosRange = Closure{ clEnv = TCEnv{ envContext = gamma }}}
+      , mvPermutation = p
+      } <- fromMaybe __IMPOSSIBLE__ <$> lookupMeta' x
+    -- Get the current context Δ.
+    delta <- getContext
+    -- A bit hazardous:
+    -- we base our decisions on the names of the context entries.
+    -- Ideally, Agda would organize contexts in ancestry trees
+    -- with substitutions to move between parent and child.
+    let glen = length gamma
+    let dlen = length delta
+    let gxs  = map (fst . unDom) gamma
+    let dxs  = map (fst . unDom) delta
+    reportSDoc "tc.interaction" 20 $ vcat
+      [ "reusing meta"
+      , nest 2 $ "creation context:" <+> pretty gxs
+      , nest 2 $ "reusage  context:" <+> pretty dxs
+      ]
+
+    -- When checking a record declaration (e.g. Σ), creation context Γ
+    -- might be of the forms Γ₀,Γ₁ or Γ₀,fst,Γ₁ or Γ₀,fst,snd,Γ₁ whereas
+    -- Δ is of the form Γ₀,r,Γ₁,{Δ₂} for record variable r.
+    -- So first find the record variable in Δ.
+    rev_args <- case List.findIndex nameIsRecordName dxs of
+
+      -- Case: no record variable in the context.
+      -- Test whether Δ is an extension of Γ.
+      Nothing -> do
+        unless (gxs `List.isSuffixOf` dxs) $ do
+          reportSDoc "impossible" 10 $ vcat
+            [ "expecting meta-creation context"
+            , nest 2 $ pretty gxs
+            , "to be a suffix of the meta-reuse context"
+            , nest 2 $ pretty dxs
+            ]
+          reportSDoc "impossible" 70 $ vcat
+            [ "expecting meta-creation context"
+            , nest 2 $ (text . show) gxs
+            , "to be a suffix of the meta-reuse context"
+            , nest 2 $ (text . show) dxs
+            ]
+          __IMPOSSIBLE__
+        -- Apply the meta to |Γ| arguments from Δ.
+        return $ map var [dlen - glen .. dlen - 1]
+
+      -- Case: record variable in the context.
+      Just k -> do
+        -- Verify that the contexts relate as expected.
+        let g0len = length dxs - k - 1
+        -- Find out the Δ₂ and Γ₁ parts.
+        -- However, as they do not share common ancestry, the @nameId@s differ,
+        -- so we consider only the original concrete names.
+        -- This is a bit risky... blame goes to #434.
+        let gys = map nameCanonical gxs
+        let dys = map nameCanonical dxs
+        let (d2len, g1len) = findOverlap (take k dys) gys
+        reportSDoc "tc.interaction" 30 $ vcat $ map (nest 2)
+          [ "glen  =" <+> pretty glen
+          , "g0len =" <+> pretty g0len
+          , "g1len =" <+> pretty g1len
+          , "d2len =" <+> pretty d2len
+          ]
+        -- The Γ₀ part should match.
+        unless (drop (glen - g0len) gxs == drop (k + 1) dxs) $ do
+          reportSDoc "impossible" 10 $ vcat
+            [ "expecting meta-creation context (with fields instead of record var)"
+            , nest 2 $ pretty gxs
+            , "to share ancestry (suffix) with the meta-reuse context (with record var)"
+            , nest 2 $ pretty dxs
+            ]
+          __IMPOSSIBLE__
+        -- The Γ₁ part should match.
+        unless ( ((==) `on` take g1len) gys (drop d2len dys) ) $ do
+          reportSDoc "impossible" 10 $ vcat
+            [ "expecting meta-creation context (with fields instead of record var)"
+            , nest 2 $ pretty gxs
+            , "to be an expansion of the meta-reuse context (with record var)"
+            , nest 2 $ pretty dxs
+            ]
+          __IMPOSSIBLE__
+        let (vs1, v : vs0) = splitAt g1len $ map var [d2len..dlen-1]
+        -- We need to expand the record var @v@ into the correct number of fields.
+        let numFields = glen - g1len - g0len
+        if numFields <= 0 then return $ vs1 ++ vs0 else do
+          -- Get the record type.
+          let t = snd . unDom . fromMaybe __IMPOSSIBLE__ $ delta !!! k
+          -- Get the record field names.
+          fs <- getRecordTypeFields t
+          -- Field arguments to the original meta are projections from the record var.
+          let vfs = map ((\ x -> v `applyE` [Proj ProjSystem x]) . unDom) fs
+          -- These are the final args to the original meta:
+          return $ vs1 ++ reverse (take numFields vfs) ++ vs0
+
+    -- Use ArgInfo from Γ.
+    let args = reverse $ zipWith (<$) rev_args $ map argFromDom gamma
+    -- Take the permutation into account (see TC.Monad.MetaVars.getMetaContextArgs).
+    let vs = permute (takeP (length args) p) args
+    reportSDoc "tc.interaction" 20 $ vcat
+      [ "meta reuse arguments:" <+> prettyTCM vs ]
+    return (x, MetaV x $ map Apply vs)
 
 -- | Construct a blocked constant if there are constraints.
 blockTerm
