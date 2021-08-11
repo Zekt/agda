@@ -7,8 +7,8 @@ data A : Set where
   a  : A
   eq : a ≡ a
 
-bad : ∀ i → eq i ≡ a
-bad i j = eq (primIMin i (primINeg j))
+ok : ∀ i → eq i ≡ a
+ok i j = eq (primIMin i (primINeg j))
 
 {-# BUILTIN REWRITE _≡_ #-}
-{-# REWRITE bad #-}
+{-# REWRITE ok #-}
