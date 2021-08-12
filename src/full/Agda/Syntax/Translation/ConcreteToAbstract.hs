@@ -225,6 +225,7 @@ recordConstructorType decls =
         C.NiceGeneralize{}    -> failure
         C.NiceUnquoteDecl{}   -> failure
         C.NiceUnquoteDef{}    -> failure
+        C.NiceUnquoteData{}   -> failure
 
 checkModuleApplication
   :: C.ModuleApplication
@@ -1719,7 +1720,9 @@ instance ToAbstract NiceDeclaration where
 
   -- Definitions (possibly mutual)
     NiceMutual r tc cc pc ds -> do
+      reportSLn "scope.mutual" 20 ("starting checking mutual definitions: " ++ prettyShow ds)
       ds' <- toAbstract ds
+      reportSLn "scope.mutual" 20 ("finishing checking mutual definitions")
       -- We only termination check blocks that do not have a measure.
       return [ A.Mutual (MutualInfo tc cc pc r) ds' ]
 
@@ -2038,6 +2041,24 @@ instance ToAbstract NiceDeclaration where
       e <- toAbstract e
       zipWithM_ (rebindName p OtherDefName) xs ys
       return [ A.UnquoteDef [ mkDefInfo x fx PublicAccess a r | (fx, x) <- zip fxs xs ] ys e ]
+
+    NiceUnquoteData r p a pc uc xs cs e -> do
+      fxs <- mapM getConcreteFixity xs
+      xs' <- zipWithM freshAbstractQName fxs xs
+      zipWithM_ (bindName p QuotableName) xs xs'
+      fcs <- mapM getConcreteFixity cs
+      cs' <- zipWithM freshAbstractQName fcs cs
+      zipWithM_ (bindName p QuotableName) cs cs'
+      e <- toAbstract e
+      zipWithM_ (rebindName p DataName) xs xs'
+      zipWithM_ (rebindName p ConName) cs cs'
+      let mi = MutualInfo TerminationCheck YesCoverageCheck pc r
+      return
+        [ A.Mutual
+          mi [A.UnquoteData
+            [ mkDefInfo x fx p a r | (fx, x) <- zip fxs xs] xs' uc
+            [ mkDefInfo c fc p a r | (fc, c) <- zip fcs cs] cs' e ]
+        ]
 
     NicePatternSyn r a n as p -> do
       reportSLn "scope.pat" 10 $ "found nice pattern syn: " ++ prettyShow n
