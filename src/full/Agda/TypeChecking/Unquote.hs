@@ -917,8 +917,8 @@ evalTCM v = do
         when (isInstance i) $ addTypedInstance x a
         primUnitUnit
 
-    -- | A datatype is expected to be declared with a type including it's parameters.
-    --   The second argument indicates how many preceding types are parameters.
+    -- A datatype is expected to be declared with a function type.
+    -- The second argument indicates how many preceding types are parameters.
     tcDeclareData :: QName -> Integer -> R.Type -> UnquoteM Term
     tcDeclareData x npars t = inOriginalContext $ do
       setDirty
@@ -931,17 +931,16 @@ evalTCM v = do
         alreadyDefined <- isRight <$> getConstInfo' x
         when alreadyDefined $ genericError $ "Multiple declarations of " ++ prettyShow x
         e <- toAbstract_ t
-        let (tel, e') = removeParams (fromInteger npars) (,) e
+        -- The type to be checked with @checkSig@ is without parameters.
+        let (tel, e') = removeParsThen (fromInteger npars) (,) e
         ac <- asksTC (^. lensIsAbstract)
         let defIn = mkDefInfo (nameConcrete $ qnameName x) noFixity' PublicAccess ac noRange
         checkSig DataName defIn x (A.GeneralizeTel Map.empty tel) e'
         primUnitUnit
 
-    -- | For now, there is no reflected syntax for types with free variables,
-    --   and @R.Type@ must be closed to be unquoted to.
-    --   Thus the input type of constructors are expected to include parameters as implicit types,
-    --   which are removed since @checkDataDef@ will add declared parameters to the context.
-    --   @Var@s in the given constructors (whose original referents are removed) are updated accordingly.
+    -- For now, there is no reflected syntax for open terms
+    -- Thus the types of given constructors are expected to be function types
+    -- with arguments as parameters.
     tcDefineData :: QName -> [(QName, R.Type)] -> UnquoteM Term
     tcDefineData x cs = inOriginalContext $ (setDirty >>) $ liftTCM $ do
       caseEitherM (getConstInfo' x)
@@ -949,20 +948,29 @@ evalTCM v = do
         npars <- case theDef def of
                    DataOrRecSig n -> return n
                    _              -> genericError $ prettyShow x ++
-                     " is not declared as datatype or record, or it already has a definition."
+                     " is not declared as a datatype or record, or it already has a definition."
+
+        es <- mapM (toAbstract_ . snd) cs
+        reportSDoc "tc.unquote.def" 10 $ vcat $
+          [ "declaring constructors of" <+> prettyTCM x <+> ":" ] ++ map prettyA es
+
+        -- The preceding arguments are removed before typechecking since @checkDataDef@ adds
+        -- the parameters of the declared datatype back to the context.
+        -- Variable names which refer to removed arguments in the given constructors
+        -- are substituted with those of the parameters of the declared datatype.
+
+        -- Translate parameters back to abstract syntax.
         t   <- instantiateFull . defType =<< instantiateDef def
         tel <- reify =<< theTel <$> telViewUpTo npars t
-        es <- mapM (toAbstract_ . snd) cs
-        let dataParams = telNames tel
-            substNames' xs e = mapExpr (substNames $ zip dataParams $ map namedBinding xs) e
-            es' = map (removeParams npars substNames') es
-        reportSDoc "tc.unquote.def" 10 $ vcat $ map prettyA es
+
+        let f = removeParsThen npars (substNames' tel)
+        es' <- foldr (liftM2 (:) . f) (pure []) es -- Optimization?
+
         ac <- asksTC (^. lensIsAbstract)
-        -- Constructors are @Axiom@s. Construct @Declaration.Axiom@s with @cs@,
-        -- then call @checkDataDef@ with these axioms.
         let i = mkDefInfo (nameConcrete $ qnameName x) noFixity' PublicAccess ac noRange
             conNames = map fst cs
-            as = zipWith (curry $ toAxiom ac) conNames es'
+            toAxiom c e = A.Axiom ConName i defaultArgInfo Nothing c e
+            as = zipWith toAxiom conNames es' -- Constructors are axioms.
             lams = map toLamBinding tel
         reportSDoc "tc.unquote.def" 10 $ vcat $
           [ "checking datatype: " <+> prettyTCM x <+> " with constructors:"
@@ -971,24 +979,33 @@ evalTCM v = do
         checkDataDef i x YesUniverseCheck (A.DataDefParams Set.empty lams) as
         primUnitUnit
       where
+        toLamBinding :: A.TypedBinding -> A.LamBinding
         toLamBinding (A.TBind _ tac (b :| []) _) = A.DomainFree tac b
         toLamBinding _ = __IMPOSSIBLE__
-        toAxiom ac (c , e) =
-          let i = mkDefInfo (nameConcrete $ qnameName x) noFixity' PublicAccess ac noRange
-          in  A.Axiom ConName i defaultArgInfo Nothing c e
-        -- | Substitute @Var x@ for @Var y@ in an Expr.
-        substNames :: [(Name, Name)] -> (A.Expr -> A.Expr)
-        substNames ((x, y) : xs) e@(A.Var n) = if (y == n) then A.Var x
-                                                           else e
-        substNames _ e = e
 
-        telNames :: A.Telescope -> [Name]
-        telNames [] = []
-        telNames (t : ts) = namedBinding t : telNames ts
+        -- Substitute @Var x@ for @Var y@ in an @Expr@.
+        substName :: Name -> Name -> (A.Expr -> A.Expr)
+        substName x y e@(A.Var n)
+                | y == n    = A.Var x
+                | otherwise = e
+        substName _ _ e = e
 
-        namedBinding :: A.TypedBinding -> Name
-        namedBinding (A.TBind _ _ (n :| _) _) = A.unBind . A.binderName $ namedArg n
-        namedBinding _ = __IMPOSSIBLE__
+        substNames' :: [A.TypedBinding] -> [A.TypedBinding] -> A.Expr -> TCM A.Expr
+        substNames' (a : as) (b : bs) e = do
+          let (namea, expra) = bindingToPair a
+              (nameb, exprb) = bindingToPair b -- Allow non-hidden arguments?
+          e' <- substNames' as bs e
+          if expra == exprb
+          then return $ mapExpr (substName namea nameb) e'
+          else genericError $
+                 "Given arguments doesn't match the parameters of datatype" ++ prettyShow x
+                 -- TODO: Show which constructor causes the error.
+        substNames' [] [] e = return e
+        substNames' _ _ _ = genericError $ "Number of parameters doesn't match!"
+
+        bindingToPair :: A.TypedBinding -> (Name, A.Expr)
+        bindingToPair (A.TBind _ _ (n :| _) e) = (A.unBind . A.binderName $ namedArg n, e)
+        bindingToPair _ = __IMPOSSIBLE__
 
     tcDefineFun :: QName -> [R.Clause] -> UnquoteM Term
     tcDefineFun x cs = inOriginalContext $ (setDirty >>) $ liftTCM $ do
@@ -1013,13 +1030,13 @@ evalTCM v = do
         _ -> liftTCM $ typeError . GenericDocError =<<
           "Should be a pair: " <+> prettyTCM u
 
-    -- | The second argument is continuation.
-    removeParams :: Int -> ([A.TypedBinding] -> A.Expr -> a) -> A.Expr -> a
-    removeParams 0     f e                   = f [] e
-    removeParams npars f (A.Pi _ (n :| _) e) | npars < 0 = __IMPOSSIBLE__ 
-    removeParams npars f (A.Pi _ (n :| _) e) =
-      removeParams (npars - 1) (\xs e' -> f (n : xs) e') e
-    removeParams _ _ _ = __IMPOSSIBLE__
+    -- The second argument is continuation.
+    removeParsThen :: Int -> ([A.TypedBinding] -> A.Expr -> a) -> A.Expr -> a
+    removeParsThen 0     f e                   = f [] e
+    removeParsThen npars f (A.Pi _ (n :| _) e) | npars < 0 = __IMPOSSIBLE__
+    removeParsThen npars f (A.Pi _ (n :| _) e) =
+      removeParsThen (npars - 1) (\xs e' -> f (n : xs) e') e
+    removeParsThen _ _ _ = __IMPOSSIBLE__
 
 ------------------------------------------------------------------------
 -- * Trusted executables
