@@ -153,6 +153,7 @@ declKind (NiceRecSig r _ _ pc uc x pars _)  = LoneSigDecl r (RecName pc uc) x
 declKind (NiceDataSig r _ _ pc uc x pars _) = LoneSigDecl r (DataName pc uc) x
 declKind (FunDef r _ abs ins tc cc x _)     = LoneDefs (FunName tc cc) [x]
 declKind (NiceDataDef _ _ _ pc uc x pars _) = LoneDefs (DataName pc uc) [x]
+declKind (NiceUnquoteData _ _ pc uc x _ _)  = LoneDefs (DataName pc uc) [x]
 declKind (NiceRecDef _ _ _ pc uc x _ pars _) = LoneDefs (RecName pc uc) [x]
 declKind (NiceUnquoteDef _ _ _ tc cc xs _)  = LoneDefs (FunName tc cc) xs
 declKind Axiom{}                            = OtherDecl
@@ -1025,6 +1026,7 @@ niceDeclarations fixs ds = do
             NiceGeneralize{}    -> top
             NiceUnquoteDecl{}   -> top
             NiceUnquoteDef{}    -> bottom
+            NiceUnquoteData{}   -> top
             NicePragma r pragma -> case pragma of
 
               OptionsPragma{}           -> top     -- error thrown in the type checker
@@ -1128,6 +1130,7 @@ niceDeclarations fixs ds = do
         termCheck NicePatternSyn{}    = TerminationCheck
         termCheck NiceGeneralize{}    = TerminationCheck
         termCheck NiceLoneConstructor{} = TerminationCheck
+        termCheck NiceUnquoteData{}   = TerminationCheck
 
         covCheck :: NiceDeclaration -> CoverageCheck
         covCheck (FunSig _ _ _ _ _ _ _ cc _ _)      = cc
@@ -1152,6 +1155,7 @@ niceDeclarations fixs ds = do
         covCheck NicePatternSyn{}    = YesCoverageCheck
         covCheck NiceGeneralize{}    = YesCoverageCheck
         covCheck NiceLoneConstructor{} = YesCoverageCheck
+        covCheck NiceUnquoteData{}   = YesCoverageCheck 
 
         -- ASR (26 December 2015): Do not positivity check a mutual
         -- block if any of its inner declarations comes with a
@@ -1220,6 +1224,7 @@ niceDeclarations fixs ds = do
         d@NiceRecDef{}                 -> return d
         d@NicePatternSyn{}             -> return d
         d@NiceGeneralize{}             -> return d
+        d@NiceUnquoteData{}            -> return d
 
     setInstance
       :: Range  -- Range of @instance@ keyword.
@@ -1283,6 +1288,7 @@ instance MakeAbstract NiceDeclaration where
       -- Need to set updater state to dirty!
       NiceUnquoteDecl r p _ i tc cc x e -> tellDirty $> NiceUnquoteDecl r p AbstractDef i tc cc x e
       NiceUnquoteDef r p _ tc cc x e    -> tellDirty $> NiceUnquoteDef r p AbstractDef tc cc x e
+      NiceUnquoteData r a tc cc x xs e  -> tellDirty $> NiceUnquoteData r AbstractDef tc cc x xs e
       d@NiceModule{}                 -> return d
       d@NiceModuleMacro{}            -> return d
       d@NicePragma{}                 -> return d
@@ -1356,6 +1362,7 @@ instance MakePrivate NiceDeclaration where
       FunDef r ds a i tc cc x cls              -> FunDef r ds a i tc cc x <$> mkPrivate o cls
       d@NiceDataDef{}                          -> return d
       d@NiceRecDef{}                           -> return d
+      d@NiceUnquoteData{}                      -> return d
 
 instance MakePrivate Clause where
   mkPrivate o (Clause x catchall lhs rhs wh with) = do
@@ -1401,6 +1408,7 @@ notSoNiceDeclarations = \case
     NiceGeneralize r _ i tac n e   -> [Generalize r [TypeSig i tac n e]]
     NiceUnquoteDecl r _ _ i _ _ x e -> inst i [UnquoteDecl r x e]
     NiceUnquoteDef r _ _ _ _ x e    -> [UnquoteDef r x e]
+    NiceUnquoteData r _ _ _ x xs e  -> [UnquoteData r x xs e]
   where
     inst (InstanceDef r) ds = [InstanceB r ds]
     inst NotInstanceDef  ds = ds
@@ -1429,3 +1437,4 @@ niceHasAbstract = \case
     NiceGeneralize{}              -> Nothing
     NiceUnquoteDecl _ _ a _ _ _ _ _ -> Just a
     NiceUnquoteDef _ _ a _ _ _ _    -> Just a
+    NiceUnquoteData _ a _ _ _ _ _   -> Just a

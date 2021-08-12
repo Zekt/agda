@@ -237,6 +237,7 @@ recordConstructorType decls =
         C.NiceGeneralize{}    -> failure
         C.NiceUnquoteDecl{}   -> failure
         C.NiceUnquoteDef{}    -> failure
+        C.NiceUnquoteData{}   -> failure
 
 checkModuleApplication
   :: C.ModuleApplication
@@ -2054,6 +2055,8 @@ instance ToAbstract NiceDeclaration where
       e <- toAbstract e
       zipWithM_ (rebindName p OtherDefName) xs ys
       return [ A.UnquoteDef [ mkDefInfo x fx PublicAccess a r | (fx, x) <- zip fxs xs ] ys e ]
+
+    NiceUnquoteData r a pc uc x xs e -> __IMPOSSIBLE__
 
     NicePatternSyn r a n as p -> do
       reportSLn "scope.pat" 10 $ "found nice pattern syn: " ++ prettyShow n

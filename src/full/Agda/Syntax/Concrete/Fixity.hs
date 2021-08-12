@@ -180,6 +180,7 @@ fixitiesAndPolarities' = foldMap $ \case
   Module          {}  -> mempty
   UnquoteDecl     {}  -> mempty
   UnquoteDef      {}  -> mempty
+  UnquoteData     {}  -> mempty
   Pragma          {}  -> mempty
 
 data DeclaredNames = DeclaredNames { _allNames, _postulates, _privateNames :: Set Name }
@@ -241,6 +242,7 @@ declaredNames = \case
   Module{}             -> mempty
   UnquoteDecl _ xs _   -> declaresNames xs
   UnquoteDef{}         -> mempty
+  UnquoteData _ x xs _ -> declaresNames (x:xs)
   -- BUILTIN pragmas which do not require an accompanying definition declare
   -- the (unqualified) name they mention.
   Pragma (BuiltinPragma _ b (QName x))
