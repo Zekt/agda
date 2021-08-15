@@ -78,7 +78,7 @@ data NiceDeclaration
   | NiceGeneralize Range Access ArgInfo TacticAttribute Name Expr
   | NiceUnquoteDecl Range Access IsAbstract IsInstance TerminationCheck CoverageCheck [Name] Expr
   | NiceUnquoteDef Range Access IsAbstract TerminationCheck CoverageCheck [Name] Expr
-  | NiceUnquoteData Range IsAbstract PositivityCheck UniverseCheck [Name] [Name] Expr
+  | NiceUnquoteData Range Access IsAbstract PositivityCheck UniverseCheck [Name] [Name] Expr
   deriving (Data, Show, Generic)
 
 instance NFData NiceDeclaration
@@ -204,7 +204,7 @@ instance HasRange NiceDeclaration where
   getRange (NiceFunClause r _ _ _ _ _ _)   = r
   getRange (NiceUnquoteDecl r _ _ _ _ _ _ _) = r
   getRange (NiceUnquoteDef r _ _ _ _ _ _)  = r
-  getRange (NiceUnquoteData r _ _ _ _ _ _) = r
+  getRange (NiceUnquoteData r _ _ _ _ _ _ _) = r
 
 instance Pretty NiceDeclaration where
   pretty = \case
@@ -229,7 +229,7 @@ instance Pretty NiceDeclaration where
     NiceGeneralize _ _ _ _ x _     -> text "variable" <+> pretty x
     NiceUnquoteDecl _ _ _ _ _ _ xs _ -> text "<unquote declarations>"
     NiceUnquoteDef _ _ _ _ _ xs _    -> text "<unquote definitions>"
-    NiceUnquoteData _ _ _ _ x xs _ -> text "<unquote data types>"
+    NiceUnquoteData _ _ _ _ _ x xs _ -> text "<unquote data types>"
 
 declName :: NiceDeclaration -> String
 declName Axiom{}             = "Postulates"

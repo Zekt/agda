@@ -153,7 +153,7 @@ declKind (NiceRecSig r _ _ pc uc x pars _)   = LoneSigDecl r (RecName pc uc) x
 declKind (NiceDataSig r _ _ pc uc x pars _)  = LoneSigDecl r (DataName pc uc) x
 declKind (FunDef r _ abs ins tc cc x _)      = LoneDefs (FunName tc cc) [x]
 declKind (NiceDataDef _ _ _ pc uc x pars _)  = LoneDefs (DataName pc uc) [x]
-declKind (NiceUnquoteData _ _ pc uc xs _ _)  = LoneDefs (DataName pc uc) xs
+declKind (NiceUnquoteData _ _ _ pc uc xs _ _) = LoneDefs (DataName pc uc) xs
 declKind (NiceRecDef _ _ _ pc uc x _ pars _) = LoneDefs (RecName pc uc) [x]
 declKind (NiceUnquoteDef _ _ _ tc cc xs _)   = LoneDefs (FunName tc cc) xs
 declKind Axiom{}                             = OtherDecl
@@ -488,7 +488,7 @@ niceDeclarations fixs ds = do
           UnquoteData r xs cs e -> do
             pc <- use positivityCheckPragma
             uc <- use universeCheckPragma
-            return ([NiceUnquoteData r ConcreteDef pc uc xs cs e], ds)
+            return ([NiceUnquoteData r PublicAccess ConcreteDef pc uc xs cs e], ds)
           Pragma p -> nicePragma p ds
 
     nicePragma :: Pragma -> [Declaration] -> Nice ([NiceDeclaration], [Declaration])
@@ -1290,7 +1290,7 @@ instance MakeAbstract NiceDeclaration where
       -- Need to set updater state to dirty!
       NiceUnquoteDecl r p _ i tc cc x e -> tellDirty $> NiceUnquoteDecl r p AbstractDef i tc cc x e
       NiceUnquoteDef r p _ tc cc x e    -> tellDirty $> NiceUnquoteDef r p AbstractDef tc cc x e
-      NiceUnquoteData r a tc cc x xs e  -> tellDirty $> NiceUnquoteData r AbstractDef tc cc x xs e
+      NiceUnquoteData r p _ tc cc x xs e -> tellDirty $> NiceUnquoteData r p AbstractDef tc cc x xs e
       d@NiceModule{}                 -> return d
       d@NiceModuleMacro{}            -> return d
       d@NicePragma{}                 -> return d
@@ -1410,7 +1410,7 @@ notSoNiceDeclarations = \case
     NiceGeneralize r _ i tac n e   -> [Generalize r [TypeSig i tac n e]]
     NiceUnquoteDecl r _ _ i _ _ x e -> inst i [UnquoteDecl r x e]
     NiceUnquoteDef r _ _ _ _ x e    -> [UnquoteDef r x e]
-    NiceUnquoteData r _ _ _ x xs e  -> [UnquoteData r x xs e]
+    NiceUnquoteData r _ _ _ _ x xs e  -> [UnquoteData r x xs e]
   where
     inst (InstanceDef r) ds = [InstanceB r ds]
     inst NotInstanceDef  ds = ds
@@ -1439,4 +1439,4 @@ niceHasAbstract = \case
     NiceGeneralize{}              -> Nothing
     NiceUnquoteDecl _ _ a _ _ _ _ _ -> Just a
     NiceUnquoteDef _ _ a _ _ _ _    -> Just a
-    NiceUnquoteData _ a _ _ _ _ _   -> Just a
+    NiceUnquoteData _ _ a _ _ _ _ _ -> Just a
