@@ -69,7 +69,7 @@ builtinNat, builtinSuc, builtinZero, builtinNatPlus, builtinNatMinus,
   builtinAgdaTCMGetType, builtinAgdaTCMGetDefinition,
   builtinAgdaTCMQuoteTerm, builtinAgdaTCMUnquoteTerm, builtinAgdaTCMQuoteOmegaTerm,
   builtinAgdaTCMBlockOnMeta, builtinAgdaTCMCommit, builtinAgdaTCMIsMacro,
-  builtinAgdaTCMWithNormalisation, builtinAgdaTCMWithReconsParams, builtinAgdaTCMDebugPrint,
+  builtinAgdaTCMWithNormalisation, builtinAgdaTCMWithReconsParams, builtinAgdaTCMDebugPrint, builtinAgdaTCMPrintDef,
   builtinAgdaTCMOnlyReduceDefs, builtinAgdaTCMDontReduceDefs,
   builtinAgdaTCMNoConstraints,
   builtinAgdaTCMRunSpeculative,
@@ -274,6 +274,7 @@ builtinAgdaTCMIsMacro                    = "AGDATCMISMACRO"
 builtinAgdaTCMWithNormalisation          = "AGDATCMWITHNORMALISATION"
 builtinAgdaTCMWithReconsParams           = "AGDATCMWITHRECONSPARAMS"
 builtinAgdaTCMDebugPrint                 = "AGDATCMDEBUGPRINT"
+builtinAgdaTCMPrintDef                   = "AGDATCMPRINTDEF"
 builtinAgdaTCMOnlyReduceDefs             = "AGDATCMONLYREDUCEDEFS"
 builtinAgdaTCMDontReduceDefs             = "AGDATCMDONTREDUCEDEFS"
 builtinAgdaTCMNoConstraints              = "AGDATCMNOCONSTRAINTS"

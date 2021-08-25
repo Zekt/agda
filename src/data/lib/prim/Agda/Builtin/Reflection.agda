@@ -304,6 +304,9 @@ postulate
   -- on (with the -v flag to Agda).
   debugPrint : String → Nat → List ErrorPart → TC ⊤
 
+  -- Similar to debugPrint, but print the definition of a given name.
+  printDef : String → Nat → Name → TC ⊤
+
   -- Only allow reduction of specific definitions while executing the TC computation
   onlyReduceDefs : ∀ {a} {A : Set a} → List Name → TC A → TC A
 
@@ -348,6 +351,7 @@ postulate
 {-# BUILTIN AGDATCMISMACRO                    isMacro                    #-}
 {-# BUILTIN AGDATCMWITHNORMALISATION          withNormalisation          #-}
 {-# BUILTIN AGDATCMDEBUGPRINT                 debugPrint                 #-}
+{-# BUILTIN AGDATCMPRINTDEF                   printDef                   #-}
 {-# BUILTIN AGDATCMONLYREDUCEDEFS             onlyReduceDefs             #-}
 {-# BUILTIN AGDATCMDONTREDUCEDEFS             dontReduceDefs             #-}
 {-# BUILTIN AGDATCMWITHRECONSPARAMS           withReconstructed          #-}
@@ -387,6 +391,7 @@ postulate
 {-# COMPILE JS withNormalisation = _ => _ => _ => _ => undefined #-}
 {-# COMPILE JS withReconstructed = _ => _ => _ =>      undefined #-}
 {-# COMPILE JS debugPrint        = _ => _ => _ =>      undefined #-}
+{-# COMPILE JS printDef          = _ => _ => _ =>      undefined #-}
 {-# COMPILE JS onlyReduceDefs    = _ => _ => _ => _ => undefined #-}
 {-# COMPILE JS dontReduceDefs    = _ => _ => _ => _ => undefined #-}
 {-# COMPILE JS noConstraints     = _ => _ => _ =>      undefined #-}

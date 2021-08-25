@@ -60,6 +60,7 @@ import Agda.Utils.List1 (List1, pattern (:|))
 import qualified Agda.Utils.List1 as List1
 import Agda.Utils.Monad
 import Agda.Utils.Pretty (prettyShow)
+import Agda.Utils.Tuple
 import qualified Agda.Interaction.Options.Lenses as Lens
 
 import Agda.Utils.Impossible
@@ -584,6 +585,7 @@ evalTCM v = do
              , (f `isDef` primAgdaTCMUnquoteTerm, tcFun1 (tcUnquoteTerm (mkT (unElim l) (unElim a))) u)
              , (f `isDef` primAgdaTCMBlockOnMeta, uqFun1 tcBlockOnMeta u)
              , (f `isDef` primAgdaTCMDebugPrint,  tcFun3 tcDebugPrint l a u)
+             , (f `isDef` primAgdaTCMPrintDef,  tcFun3 tcPrintDef l a u)
              , (f `isDef` primAgdaTCMNoConstraints, tcNoConstraints (unElim u))
              , (f `isDef` primAgdaTCMWithReconsParams, tcWithReconsParams (unElim u))
              , (f `isDef` primAgdaTCMDeclareData, uqFun3 tcDeclareData l a u)
@@ -1031,6 +1033,30 @@ evalTCM v = do
           return x
         _ -> liftTCM $ typeError . GenericDocError =<<
           "Should be a pair: " <+> prettyTCM u
+
+    tcPrintDef :: Text -> Integer -> QName -> TCM Term
+    tcPrintDef s n name = do
+      def <- constInfo name
+      case theDef def of
+        Datatype{ dataPars = npars, dataCons = cons } -> do
+          let t     = defType def
+              typ   = removePars npars t
+          tel     <- telViewUpTo npars t
+          condefs <- mapM constInfo cons
+          reportSDoc (T.unpack s) (fromIntegral n) $
+            vcat [ "data" <+> pretty (theTel tel) <+> ":" <+> pretty typ <+> "where"
+                 , nest 2 $ vcat $ zipWith (\con condef ->
+                                               pretty con <+> ":" <+> pretty (defType condef))
+                                           cons
+                                           condefs
+                 ]
+        _ -> reportSDoc (T.unpack s) (fromIntegral n) $ "Printing non-datatype is currently not supported."
+      primUnitUnit
+      where
+        removePars 0     t = t
+        removePars npars t = case unEl t of
+                               Pi _ t -> removePars (npars - 1) (unAbs t)
+                               _ -> __IMPOSSIBLE__ 
 
     -- The second argument is continuation.
     removeParsThen :: Int -> ([A.TypedBinding] -> A.Expr -> a) -> A.Expr -> a
