@@ -377,7 +377,7 @@ test : check-whitespace \
        std-lib-succeed \
        std-lib-interaction \
        user-manual-test \
-       test-size-solver
+       size-solver-test
 
 .PHONY : test-using-std-lib ## Run all tests which use the standard library.
 test-using-std-lib : std-lib-test \
@@ -417,7 +417,7 @@ common :
 .PHONY : succeed ##
 succeed :
 	@$(call decorate, "Suite of successful tests", \
-		echo $(AGDA_BIN) > test/Succeed/exec-tc/executables && \
+		echo $(shell which $(AGDA_BIN)) > test/Succeed/exec-tc/executables && \
 		AGDA_BIN=$(AGDA_BIN) $(AGDA_TESTS_BIN) $(AGDA_TESTS_OPTIONS) --regex-include all/Succeed ; \
 		rm test/Succeed/exec-tc/executables )
 
@@ -449,17 +449,17 @@ latex-html-test :
 .PHONY : html-test ##
 html-test :
 	@$(call decorate, "Suite of tests for the HTML backend", \
-	  AGDA_BIN=$(AGDA_BIN) $(AGDA_TESTS_BIN) $(AGDA_TESTS_OPTIONS) --regex-include all/HTMLOnly)
+	  AGDA_BIN=$(AGDA_BIN) $(AGDA_TESTS_BIN) $(AGDA_TESTS_OPTIONS) --regex-include all/LaTeXAndHTML/HTML)
 
 .PHONY : latex-test ##
 latex-test :
 	@$(call decorate, "Suite of tests for the LaTeX backend", \
-		AGDA_BIN=$(AGDA_BIN) $(AGDA_TESTS_BIN) $(AGDA_TESTS_OPTIONS) --regex-include all/LaTeXOnly)
+		AGDA_BIN=$(AGDA_BIN) $(AGDA_TESTS_BIN) $(AGDA_TESTS_OPTIONS) --regex-include all/LaTeXAndHTML/LaTeX)
 
 .PHONY : quicklatex-test ##
 quicklatex-test :
 	@$(call decorate, "Suite of tests for the QuickLaTeX backend", \
-	  AGDA_BIN=$(AGDA_BIN) $(AGDA_TESTS_BIN) $(AGDA_TESTS_OPTIONS) --regex-include all/QuickLaTeXOnly)
+	  AGDA_BIN=$(AGDA_BIN) $(AGDA_TESTS_BIN) $(AGDA_TESTS_OPTIONS) --regex-include all/LaTeXAndHTML/QuickLaTeX)
 
 .PHONY : std-lib-test ##
 std-lib-test :
@@ -549,8 +549,8 @@ install-size-solver :
 	@$(call decorate, "Installing the size-solver program", \
 		$(MAKE) -C src/size-solver STACK_INSTALL_OPTS='$(SLOW_STACK_INSTALL_OPTS) $(STACK_INSTALL_OPTS)' CABAL_INSTALL_OPTS='$(SLOW_CABAL_INSTALL_OPTS) $(CABAL_INSTALL_OPTS)' install-bin)
 
-.PHONY : test-size-solver ##
-test-size-solver : install-size-solver
+.PHONY : size-solver-test ##
+size-solver-test : install-size-solver
 	@$(call decorate, "Testing the size-solver program", \
 		$(MAKE) -C src/size-solver test)
 
