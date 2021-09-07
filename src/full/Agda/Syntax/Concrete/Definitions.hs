@@ -298,10 +298,10 @@ niceDeclarations fixs ds = do
             -- register x as lone type signature, to recognize clauses later
             x' <- addLoneSig r x $ FunName termCheck covCheck
             return ([FunSig r PublicAccess ConcreteDef NotInstanceDef NotMacroDef info termCheck covCheck x' t] , ds)
-  
+
           -- Should not show up: all FieldSig are part of a Field block
           FieldSig{} -> __IMPOSSIBLE__
-  
+
           Generalize r [] -> justWarning $ EmptyGeneralize r
           Generalize r sigs -> do
             gs <- forM sigs $ \case
@@ -309,7 +309,7 @@ niceDeclarations fixs ds = do
                 return $ NiceGeneralize (getRange sig) PublicAccess info tac x t
               _ -> __IMPOSSIBLE__
             return (gs, ds)
-  
+
           FunClause lhs _ _ _         -> do
             termCheck <- use terminationCheckPragma
             covCheck  <- use coverageCheckPragma
@@ -325,7 +325,7 @@ niceDeclarations fixs ds = do
                         else span (couldBeFunClauseOf (Map.lookup x fixs) x) (d : ds)
                  , not (null fits)
                  ] of
-  
+
               -- case: clauses match none of the sigs
               [] -> case lhs of
                 -- Subcase: The lhs is single identifier (potentially anonymous).
@@ -338,7 +338,7 @@ niceDeclarations fixs ds = do
                 -- A missing type signature error might be raise in ConcreteToAbstract
                 _ -> do
                   return ([NiceFunClause (getRange d) PublicAccess ConcreteDef termCheck covCheck catchall d] , ds)
-  
+
               -- case: clauses match exactly one of the sigs
               [(x,(x',fits,rest))] -> do
                  -- The x'@NoName{} is the unique version of x@NoName{}.
@@ -346,20 +346,20 @@ niceDeclarations fixs ds = do
                  ds  <- expandEllipsis fits
                  cs  <- mkClauses x' ds False
                  return ([FunDef (getRange fits) fits ConcreteDef NotInstanceDef termCheck covCheck x' cs] , rest)
-  
+
               -- case: clauses match more than one sigs (ambiguity)
               xf:xfs -> declarationException $ AmbiguousFunClauses lhs $ List1.reverse $ fmap fst $ xf :| xfs
                    -- "ambiguous function clause; cannot assign it uniquely to one type signature"
-  
+
           Field r [] -> justWarning $ EmptyField r
           Field _ fs -> (,ds) <$> niceAxioms FieldBlock fs
-  
+
           DataSig r x tel e -> do
             pc <- use positivityCheckPragma
             uc <- use universeCheckPragma
             _ <- addLoneSig r x $ DataName pc uc
             (,ds) <$> dataOrRec pc uc NiceDataDef NiceDataSig (niceAxioms DataBlock) r x (Just (tel, e)) Nothing
-  
+
           Data r x tel e cs -> do
             pc <- use positivityCheckPragma
             -- Andreas, 2018-10-27, issue #3327
@@ -370,7 +370,7 @@ niceDeclarations fixs ds = do
             uc <- if uc == NoUniverseCheck then return uc else getUniverseCheckFromSig x
             mt <- defaultTypeSig (DataName pc uc) x (Just e)
             (,ds) <$> dataOrRec pc uc NiceDataDef NiceDataSig (niceAxioms DataBlock) r x ((tel,) <$> mt) (Just (tel, cs))
-  
+
           DataDef r x tel cs -> do
             pc <- use positivityCheckPragma
             -- Andreas, 2018-10-27, issue #3327
@@ -381,13 +381,13 @@ niceDeclarations fixs ds = do
             uc <- if uc == NoUniverseCheck then return uc else getUniverseCheckFromSig x
             mt <- defaultTypeSig (DataName pc uc) x Nothing
             (,ds) <$> dataOrRec pc uc NiceDataDef NiceDataSig (niceAxioms DataBlock) r x ((tel,) <$> mt) (Just (tel, cs))
-  
+
           RecordSig r x tel e         -> do
             pc <- use positivityCheckPragma
             uc <- use universeCheckPragma
             _ <- addLoneSig r x $ RecName pc uc
             return ([NiceRecSig r PublicAccess ConcreteDef pc uc x tel e] , ds)
-  
+
           Record r x dir tel e cs   -> do
             pc <- use positivityCheckPragma
             -- Andreas, 2018-10-27, issue #3327
@@ -399,7 +399,7 @@ niceDeclarations fixs ds = do
             mt <- defaultTypeSig (RecName pc uc) x (Just e)
             (,ds) <$> dataOrRec pc uc (\ r o a pc uc x tel cs -> NiceRecDef r o a pc uc x dir tel cs) NiceRecSig
                         return r x ((tel,) <$> mt) (Just (tel, cs))
-  
+
           RecordDef r x dir tel cs   -> do
             pc <- use positivityCheckPragma
             -- Andreas, 2018-10-27, issue #3327
@@ -411,9 +411,9 @@ niceDeclarations fixs ds = do
             mt <- defaultTypeSig (RecName pc uc) x Nothing
             (,ds) <$> dataOrRec pc uc (\ r o a pc uc x tel cs -> NiceRecDef r o a pc uc x dir tel cs) NiceRecSig
                         return r x ((tel,) <$> mt) (Just (tel, cs))
-  
+
           RecordDirective r -> justWarning $ InvalidRecordDirective (getRange r)
-  
+
           Mutual r ds' -> do
             -- The lone signatures encountered so far are not in scope
             -- for the mutual definition
@@ -421,7 +421,7 @@ niceDeclarations fixs ds = do
             case ds' of
               [] -> justWarning $ EmptyMutual r
               _  -> (,ds) <$> (singleton <$> (mkOldMutual r =<< nice ds'))
-  
+
           InterleavedMutual r ds' -> do
             -- The lone signatures encountered so far are not in scope
             -- for the mutual definition
@@ -429,55 +429,55 @@ niceDeclarations fixs ds = do
             case ds' of
               [] -> justWarning $ EmptyMutual r
               _  -> (,ds) <$> (singleton <$> (mkInterleavedMutual r =<< nice ds'))
-  
+
           LoneConstructor r [] -> justWarning $ EmptyConstructor r
           LoneConstructor r ds' ->
             ((,ds) . singleton . NiceLoneConstructor r) <$> niceAxioms ConstructorBlock ds'
-  
+
           Abstract r []  -> justWarning $ EmptyAbstract r
           Abstract r ds' ->
             (,ds) <$> (abstractBlock r =<< nice ds')
-  
+
           Private r UserWritten []  -> justWarning $ EmptyPrivate r
           Private r o ds' ->
             (,ds) <$> (privateBlock r o =<< nice ds')
-  
+
           InstanceB r []  -> justWarning $ EmptyInstance r
           InstanceB r ds' ->
             (,ds) <$> (instanceBlock r =<< nice ds')
-  
+
           Macro r []  -> justWarning $ EmptyMacro r
           Macro r ds' ->
             (,ds) <$> (macroBlock r =<< nice ds')
-  
+
           Postulate r []  -> justWarning $ EmptyPostulate r
           Postulate _ ds' ->
             (,ds) <$> niceAxioms PostulateBlock ds'
-  
+
           Primitive r []  -> justWarning $ EmptyPrimitive r
           Primitive _ ds' -> (,ds) <$> (map toPrim <$> niceAxioms PrimitiveBlock ds')
-  
+
           Module r x tel ds' -> return $
             ([NiceModule r PublicAccess ConcreteDef x tel ds'] , ds)
-  
+
           ModuleMacro r x modapp op is -> return $
             ([NiceModuleMacro r PublicAccess x modapp op is] , ds)
-  
+
           -- Fixity and syntax declarations and polarity pragmas have
           -- already been processed.
           Infix _ _  -> return ([], ds)
           Syntax _ _ -> return ([], ds)
-  
+
           PatternSyn r n as p -> do
             return ([NicePatternSyn r PublicAccess n as p] , ds)
           Open r x is         -> return ([NiceOpen r x is] , ds)
           Import r x as op is -> return ([NiceImport r x as op is] , ds)
-  
+
           UnquoteDecl r xs e -> do
             tc <- use terminationCheckPragma
             cc <- use coverageCheckPragma
             return ([NiceUnquoteDecl r PublicAccess ConcreteDef NotInstanceDef tc cc xs e] , ds)
-  
+
           UnquoteDef r xs e -> do
             sigs <- map fst . loneFuns <$> use loneSigs
             List1.ifNotNull (filter (`notElem` sigs) xs)
@@ -1157,7 +1157,7 @@ niceDeclarations fixs ds = do
         covCheck NicePatternSyn{}    = YesCoverageCheck
         covCheck NiceGeneralize{}    = YesCoverageCheck
         covCheck NiceLoneConstructor{} = YesCoverageCheck
-        covCheck NiceUnquoteData{}   = YesCoverageCheck 
+        covCheck NiceUnquoteData{}   = YesCoverageCheck
 
         -- ASR (26 December 2015): Do not positivity check a mutual
         -- block if any of its inner declarations comes with a

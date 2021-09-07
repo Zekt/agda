@@ -1056,7 +1056,7 @@ evalTCM v = do
         removePars 0     t = t
         removePars npars t = case unEl t of
                                Pi _ t -> removePars (npars - 1) (unAbs t)
-                               _ -> __IMPOSSIBLE__ 
+                               _ -> __IMPOSSIBLE__
 
     -- The second argument is continuation.
     removeParsThen :: Int -> ([A.TypedBinding] -> A.Expr -> a) -> A.Expr -> a
