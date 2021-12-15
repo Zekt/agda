@@ -131,12 +131,9 @@ isDef f tm = loop <$> liftTCM tm
     loop _         = False
 
 reduceQuotedTerm :: Term -> UnquoteM Term
-reduceQuotedTerm t = do
-  b <- ifBlocked t {-then-} (\ m _ -> pure $ Left  m)
-                   {-else-} (\ _ t -> pure $ Right t)
-  case b of
-    Left m  -> do s <- gets snd; throwError $ BlockedOnMeta s m
-    Right t -> return t
+reduceQuotedTerm t = locallyReduceAllDefs $ do
+  ifBlocked t {-then-} (\ m _ -> do s <- gets snd; throwError $ BlockedOnMeta s m)
+              {-else-} (\ _ t -> return t)
 
 class Unquote a where
   unquote :: I.Term -> UnquoteM a
@@ -997,12 +994,15 @@ evalTCM v = do
           let (namea, expra) = bindingToPair a
               (nameb, exprb) = bindingToPair b -- Allow non-hidden arguments?
           e' <- substNames' as bs e
-          if expra == exprb
-          then return $ mapExpr (substName namea nameb) e'
-          else genericDocError =<< hcat
-                 [ "Given argument ", prettyTCM exprb,
-                   " doesn't match the parameter ", prettyTCM expra,
-                   " of datatype ", pretty x ]
+          return $ mapExpr (substName namea nameb) e'
+          -- Don't check the parameters match or not for now,
+          -- The parameters should be the same anyway.
+          --if expra == exprb
+          --then return $ mapExpr (substName namea nameb) e'
+          --else genericDocError =<< hcat
+          --       [ "Given argument ", prettyTCM exprb,
+          --         " doesn't match the parameter ", prettyTCM expra,
+          --         " of datatype ", pretty x ]
                --TODO: Show which constructor causes the error.
         substNames' [] [] e = return e
         substNames' _ _ _ = genericError $ "Number of parameters doesn't match!"

@@ -53,6 +53,15 @@ General options
 
      Show version number.
 
+.. option:: --print-agda-dir
+
+     .. versionadded:: 2.6.2
+
+     Outputs the root (:envvar:`AGDA_DIR`)
+     of the directory structure holding Agda's data files
+     such as core libraries, style files for the backends etc.
+
+
 Compilation
 ~~~~~~~~~~~
 
@@ -89,6 +98,20 @@ Generating highlighted source code
 .. option:: --dependency-graph={FILE}
 
      Generate a Dot_ file ``FILE`` with a module dependency graph.
+
+.. option:: --dependency-graph-include={LIBRARY}
+
+     Include modules from the given library in the dependency graph.
+     This option can be used multiple times to include modules from
+     several libraries. If this option is not used at all, then all
+     modules are included. (Note that the module given on the command
+     line might not be included.)
+
+     A module ``M`` is considered to be in the library ``L`` if ``L``
+     is the ``name`` of a ``.agda-lib`` file ``A``
+     :ref:`associated<The_agda-lib_files_associated_to_a_give_Agda_file>`
+     to ``M`` (even if ``M``'s file can not be found via the
+     ``include`` paths in ``A``).
 
 .. option:: --html
 
@@ -453,19 +476,9 @@ Other features
      .. versionadded:: 2.6.1
 
      Enable [disable] cumulative subtyping of universes, i.e. if `A :
-     Set i` then also `A : Set j` for all `j >= i`. Implies
-     `--subtyping`.
+     Set i` then also `A : Set j` for all `j >= i`.
 
      Default: ``--no-cumulativity``
-
-.. option:: --subtyping, --no-subtyping
-
-     .. versionadded:: 2.6.1
-
-     Enable [disable] subtyping rules globally, including subtyping
-     for irrelevance, erasure (`@0`) and flat (`@♭`) modalities.
-
-     Default: ``--no-subtyping``
 
 .. option:: --no-import-sorts
 
