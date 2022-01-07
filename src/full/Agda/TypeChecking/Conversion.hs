@@ -1305,7 +1305,7 @@ leqLevel a b = catchConstraint (LevelCmp CmpLeq a b) $ do
           sep [ prettyTCM a <+> "=<"
               , prettyTCM b ]
 
-      (a, b) <- reduce (a, b)
+      (a, b) <- normalise (a, b)
       SynEq.checkSyntacticEquality a b
         (\_ _ ->
           reportSDoc "tc.conv.level" 60
@@ -1455,7 +1455,7 @@ equalLevel a b = do
                ]
         ]
 
-  (a, b) <- reduce (a, b)
+  (a, b) <- normalise (a, b)
   SynEq.checkSyntacticEquality a b
     (\_ _ ->
       reportSDoc "tc.conv.level" 60
