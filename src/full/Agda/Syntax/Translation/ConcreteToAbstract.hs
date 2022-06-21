@@ -2043,20 +2043,32 @@ instance ToAbstract NiceDeclaration where
       return [ A.UnquoteDef [ mkDefInfo x fx PublicAccess a r | (fx, x) <- zip fxs xs ] ys e ]
 
     NiceUnquoteData r p a pc uc xs cs e -> do
-      fxs <- mapM getConcreteFixity xs
-      xs' <- zipWithM freshAbstractQName fxs xs
-      zipWithM_ (bindName p QuotableName) xs xs'
+      x <- maybe (typeError $ GenericError $ "Cannot unquote multiple data names at once")
+                 (return . List1.head)
+                 (List1.nonEmpty xs)
+      fx <- getConcreteFixity x
+      x' <- freshAbstractQName fx x
+      bindName p QuotableName x x'
+
+      -- Create the module for the qualified constructors
+      checkForModuleClash x
+      let m = qnameToMName x'
+      createModule (Just IsDataModule) m
+      bindModule p x m  -- make it a proper module
+
+      cs' <- withCurrentModule m $ mapM (bindUnquoteConstructorName m p) cs
+
+      e <- withCurrentModule m $ toAbstract e
+
+      rebindName p DataName x x'
+      withCurrentModule m $ zipWithM_ (rebindName p ConName) cs cs'
+
       fcs <- mapM getConcreteFixity cs
-      cs' <- zipWithM freshAbstractQName fcs cs
-      zipWithM_ (bindName p QuotableName) cs cs'
-      e <- toAbstract e
-      zipWithM_ (rebindName p DataName) xs xs'
-      zipWithM_ (rebindName p ConName) cs cs'
       let mi = MutualInfo TerminationCheck YesCoverageCheck pc r
       return
         [ A.Mutual
           mi [A.UnquoteData
-            [ mkDefInfo x fx p a r | (fx, x) <- zip fxs xs] xs' uc
+            [ mkDefInfo x fx p a r ] [x'] uc
             [ mkDefInfo c fc p a r | (fc, c) <- zip fcs cs] cs' e ]
         ]
 
@@ -2257,6 +2269,25 @@ bindRecordConstructorName x kind a p = do
     p' = case a of
            AbstractDef -> PrivateAccess Inserted
            _           -> p
+
+bindUnquoteConstructorName :: ModuleName -> Access -> C.Name -> TCM A.QName
+bindUnquoteConstructorName m p c = do
+
+  r <- resolveName (C.QName c)
+  fc <- getConcreteFixity c
+  c' <- withCurrentModule m $ freshAbstractQName fc c
+  let aname qn = AbsName qn QuotableName Defined NoMetadata
+      addName = modifyCurrentScope $ addNameToScope (localNameSpace p) c $ aname c'
+      success = addName >> (withCurrentModule m $ addName)
+  case r of
+    _ | isNoName c       -> success
+    UnknownName          -> success
+    ConstructorName i ds -> if all (isJust . isConName . anameKind) ds
+      then success
+      else typeError $ ClashingDefinition (C.QName c) (anameName $ List1.head ds) Nothing
+    _ -> typeError $ GenericError $
+       "The name " ++ prettyShow c ++ " already has non-constructor definitions"
+  return c'
 
 instance ToAbstract DataConstrDecl where
   type AbsOfCon DataConstrDecl = A.Declaration
